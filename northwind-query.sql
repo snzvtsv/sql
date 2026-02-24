@@ -283,5 +283,24 @@ JOIN Orders o
 
 -- Calculate the moving average of sales for each product over time, including only the next order
 
+SELECT
+    od.OrderID,
+    od.ProductID,
+    o.OrderDate,
+    od.quantity AS Sales,
+    AVG(od.quantity) OVER(PARTITION BY od.ProductID) AS AvgByProduct,
+    AVG(od.quantity) OVER(PARTITION BY od.ProductID ORDER BY OrderDate) AS MovingAvg,
+    AVG(od.quantity) OVER(PARTITION BY od.ProductID ORDER BY OrderDate ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS RollingAvg
+FROM [Order Details] od
+JOIN products p
+    ON od.ProductID = p.ProductID
+JOIN Orders o
+    ON od.OrderID = o.OrderID
 
-
+-- Rank the orders based on their sales from the highest to the lowest
+SELECT
+    OrderID,
+    ProductID,
+    Quantity AS Sales
+FROM [Order Details]
+GROUP BY ProductID
