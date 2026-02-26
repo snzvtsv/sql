@@ -301,6 +301,115 @@ JOIN Orders o
 SELECT
     OrderID,
     ProductID,
-    Quantity AS Sales
+    Quantity AS Sales,
+    ROW_NUMBER() OVER(ORDER BY Quantity DESC) AS SalesRank_Row,
+    RANK() OVER(ORDER BY Quantity DESC) AS SalesRank_Rank,
+    DENSE_RANK() OVER(ORDER BY Quantity DESC) AS SalesDense_Rank
 FROM [Order Details]
-GROUP BY ProductID
+
+-- ROW_NUMBER() TOP-N Analysis
+-- Find the top highest sales for each product
+SELECT *
+FROM (SELECT OrderID,
+             ProductID,
+             Quantity AS Sales,
+             ROW_NUMBER() OVER (PARTITION BY ProductID ORDER BY quantity DESC) AS RankByProduct
+      FROM [Order Details]
+      )t WHERE RankByProduct = 1
+
+-- ROW_NUMBER() BOTTOM-N Analysis
+-- Find the lowest 2 customers based on their total sales
+SELECT *
+FROM (
+    SELECT c.CustomerID,
+             SUM(od.Quantity)                                  AS TotalSales,
+             ROW_NUMBER() OVER (ORDER BY SUM(od.Quantity) ASC) AS RankCustomers
+      FROM Customers c
+               JOIN Orders o
+                    ON c.CustomerID = o.CustomerID
+               JOIN [Order Details] od
+                    ON o.OrderID = od.OrderID
+      GROUP BY c.CustomerID)t WHERE RankCustomers <= 2
+
+
+-- Assign unique IDs to the rows of the 'Order Archive' table
+-- Divide(partition) the data by the primary key of the table
+ -- Latest inserted data
+SELECT * FROM (SELECT ROW_NUMBER() OVER (PARTITION BY o.OrderID ORDER BY o.OrderDate DESC) AS RN,
+                      o.*
+               FROM [Order Details] od
+                        JOIN Orders o
+                             ON od.OrderID = o.OrderID
+                        JOIN (SELECT OrderID,
+                                     CASE
+                                         WHEN ShippedDate IS NULL THEN 'Not Shipped'
+                                         WHEN ShippedDate > RequiredDate THEN 'Delivered Late'
+                                         ELSE 'Delivered On Time'
+                                         END AS order_status
+                              FROM orders) s
+                             ON od.OrderID = s.OrderID)t WHERE RN=1
+
+--Uncleaned/Problematic data
+SELECT * FROM (SELECT ROW_NUMBER() OVER (PARTITION BY o.OrderID ORDER BY o.OrderDate DESC) AS RN,
+                      o.*
+               FROM [Order Details] od
+                        JOIN Orders o
+                             ON od.OrderID = o.OrderID
+                        JOIN (SELECT OrderID,
+                                     CASE
+                                         WHEN ShippedDate IS NULL THEN 'Not Shipped'
+                                         WHEN ShippedDate > RequiredDate THEN 'Delivered Late'
+                                         ELSE 'Delivered On Time'
+                                         END AS order_status
+                              FROM orders) s
+                             ON od.OrderID = s.OrderID)t WHERE RN>1
+
+SELECT
+    OrderID,
+    Quantity AS Sales,
+    NTILE(1) OVER(ORDER BY Quantity DESC) OneBuckets,
+    NTILE(2) OVER(ORDER BY Quantity DESC) TwoBuckets,
+    NTILE(3) OVER(ORDER BY Quantity DESC) ThreeBuckets,
+    NTILE(150) OVER(ORDER BY Quantity DESC) Buckets
+FROM [Order Details]
+
+-- Segment all orders into 3 categories: high, medium and low sales
+SELECT
+*,
+CASE WHEN Buckets = 1 THEN 'High'
+    WHEN Buckets = 2 THEN 'Medium'
+    WHEN Buckets = 3 THEN 'Low'
+END AS SalesSegmentation
+FROM (
+    SELECT OrderID,
+             Quantity                               AS Sales,
+             NTILE(3) OVER (ORDER BY Quantity DESC) AS Buckets
+
+      FROM [Order Details]
+      )t
+
+-- IN order to export the data, divide the orders into 20 groups
+SELECT
+    NTILE(20) OVER(ORDER BY OrderID) AS Buckets,
+    *
+FROM [Order Details]
+
+-- Find the products that fall within the highest 40% of the prices
+SELECT *,
+       CONCAT(DistRank * 100, '%') AS DistRankPerc
+FROM (
+    SELECT
+        ProductID, ProductName, UnitPrice,
+        ROUND(CUME_DIST() OVER(ORDER BY UnitPrice ASC), 3) AS DistRank
+    FROM Products p
+     )t WHERE DistRank >= 0.6
+
+SELECT *,
+       CONCAT(PercRank * 100, '%') AS DistRankPerc
+FROM (
+    SELECT
+        ProductID, ProductName,
+        ROUND(Percent_Rank() OVER(ORDER BY UnitPrice DESC), 3) AS PercRank
+    FROM Products p
+     )t WHERE PercRank <= 0.4
+
