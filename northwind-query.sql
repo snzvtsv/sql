@@ -413,3 +413,50 @@ FROM (
     FROM Products p
      )t WHERE PercRank <= 0.4
 
+
+
+-- (MoM) Month-Over-Months ANALYSIS
+-- Analyse the month-over-month (MoM) performance by finding the percentage change in sales between the current and previous month
+SELECT *,
+       CurrentMonthSales - PreviousMonthSales AS MoM_Change,
+      ROUND(CAST((CurrentMonthSales - PreviousMonthSales) AS FLOAT) / PreviousMonthSales * 100, 1) AS MoM_Perc_Change
+FROM (SELECT MONTH(o.OrderDate)                                              AS OrderMonth,
+             SUM(od.quantity)                                                AS CurrentMonthSales,
+             LAG(SUM(od.quantity), 1) OVER (ORDER BY MONTH(o.OrderDate))  AS PreviousMonthSales,
+             LEAD(SUM(od.quantity), 1) OVER (ORDER BY MONTH(o.OrderDate)) AS NextsMonthSales
+      FROM Orders o
+               JOIN [Order Details] od
+                    ON o.OrderID = od.OrderID
+      GROUP BY MONTH(o.OrderDate)
+      )t
+ORDER BY MONTH(OrderMonth) ASC
+
+-- Analyse customer loyalty by ranking customers based on the average number of days between orders
+SELECT
+    CustomerID,
+    AVG(DaysUntilNextOrder) AS AvgDays,
+    RANK() OVER(ORDER BY COALESCE(AVG(DaysUntilNextOrder), 9999)) AS RankAvg
+FROM (SELECT o.OrderID,
+             o.CustomerID,
+             o.OrderDate                                                                                         AS CurrentOrder,
+             LEAD(o.OrderDate)
+                  OVER (PARTITION BY o.CustomerID ORDER BY o.OrderDate)                                          AS NextOrder,
+             DATEDIFF(day, o.OrderDate, LEAD(o.OrderDate)
+                                             OVER (PARTITION BY o.CustomerID ORDER BY o.OrderDate))              AS DaysUntilNextOrder
+      FROM Orders o
+      )t
+GROUP BY CustomerID
+
+
+-- Find the lowest and the highest sales for each product
+-- Find the difference in sales between the current and the lowest sales
+SELECT
+    OrderID, ProductID, Quantity AS Sales,
+    FIRST_VALUE(Quantity) OVER(PARTITION BY ProductID ORDER BY Quantity ASC) AS LowestSales1,
+    LAST_VAlUE(Quantity) OVER(PARTITION BY  ProductID ORDER BY Quantity ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS HighestSales1,
+    FIRST_VALUE(Quantity) OVER(PARTITION BY ProductID ORDER BY Quantity DESC) AS HighestSales2,
+    MIN(Quantity) OVER(PARTITION BY ProductID ) AS LowestSales2,
+    MAX(Quantity) OVER(PARTITION BY ProductID ) AS HighestSales3,
+    Quantity - FIRST_VALUE(Quantity) OVER(PARTITION BY ProductID ORDER BY Quantity ASC) AS SalesDifference
+
+FROM [Order Details] od
